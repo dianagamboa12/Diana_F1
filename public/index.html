@@ -801,199 +801,302 @@ function renderDrivers() {
     });
 }
 
+function renderTeams() {
+    const container = document.getElementById('teams-container');
+    container.innerHTML = teams.map(team => `
+        <div class="team-card" data-id="${team.id}">
+            ${team.image ? 
+                `<img src="${team.image}" alt="${team.name}" class="team-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                 <div class="team-placeholder" style="display: none; width: 50px; height: 50px; border-radius: 8px; background: rgba(255,255,255,0.1); align-items: center; justify-content: center; font-size: 20px; margin-bottom: 8px;">🏁</div>` :
+                `<div class="team-placeholder" style="width: 50px; height: 50px; border-radius: 8px; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 8px;">🏁</div>`
+            }
+            <div class="team-name">${team.name}</div>
+            <div class="price">$${team.price}M</div>
+        </div>
+    `).join('');
 
+    // Agregar event listeners
+    container.querySelectorAll('.team-card').forEach(card => {
+        card.addEventListener('click', () => selectTeam(parseInt(card.dataset.id)));
+    });
+}
 
-            // Agregar event listeners
-            container.querySelectorAll('.driver-card').forEach(card => {
-                card.addEventListener('click', () => selectDriver(parseInt(card.dataset.id)));
-            });
+function selectDriver(driverId) {
+    const driverIndex = selectedDrivers.indexOf(driverId);
+    
+    if (driverIndex > -1) {
+        // Deseleccionar piloto
+        selectedDrivers.splice(driverIndex, 1);
+    } else {
+        // Seleccionar piloto (máximo 5)
+        if (selectedDrivers.length < 5) {
+            selectedDrivers.push(driverId);
+        } else {
+            showMessage('Solo puedes seleccionar 5 pilotos', 'error');
+            return;
+        }
+    }
+    
+    updateUI();
+}
 
+function selectTeam(teamId) {
+    selectedTeam = selectedTeam === teamId ? null : teamId;
+    updateUI();
+}
+
+function updateUI() {
+    // Actualizar cards seleccionadas
+    document.querySelectorAll('.driver-card').forEach(card => {
+        const driverId = parseInt(card.dataset.id);
+        card.classList.toggle('selected', selectedDrivers.includes(driverId));
+    });
+
+    document.querySelectorAll('.team-card').forEach(card => {
+        const teamId = parseInt(card.dataset.id);
+        card.classList.toggle('selected', selectedTeam === teamId);
+    });
+
+    // Actualizar contadores
+    document.getElementById('driver-count').textContent = selectedDrivers.length;
+    document.getElementById('team-count').textContent = selectedTeam ? 1 : 0;
+
+    // Calcular presupuesto usado
+    const usedBudget = calculateUsedBudget();
+    const remainingBudget = totalBudget - usedBudget;
+    
+    document.getElementById('remaining-budget').textContent = remainingBudget.toFixed(1);
+    
+    // Habilitar/deshabilitar botón guardar
+    const saveButton = document.getElementById('save-team');
+    const canSave = selectedDrivers.length === 5 && selectedTeam && remainingBudget >= 0;
+    saveButton.disabled = !canSave;
+}
+
+function calculateUsedBudget() {
+    let total = 0;
+    
+    selectedDrivers.forEach(driverId => {
+        const driver = drivers.find(d => d.id === driverId);
+        if (driver) total += driver.price;
+    });
+    
+    if (selectedTeam) {
+        const team = teams.find(t => t.id === selectedTeam);
+        if (team) total += team.price;
+    }
+    
+    return total;
+}
+
+async function saveTeam() {
+    try {
+        const response = await fetch('/api/team', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                userId: currentUser.id,
+                selectedDrivers,
+                selectedTeam
+            })
+        });
+
+        const data = await response.json();
         
-        function renderTeams() {
-            const container = document.getElementById('teams-container');
-            container.innerHTML = teams.map(team => `
-                <div class="team-card" data-id="${team.id}">
-                    ${team.image ? 
-                        `<img src="${team.image}" alt="${team.name}" class="team-image" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
-                         <div class="team-placeholder" style="display: none; width: 50px; height: 50px; border-radius: 8px; background: rgba(255,255,255,0.1); align-items: center; justify-content: center; font-size: 20px; margin-bottom: 8px;">🏁</div>` :
-                        `<div class="team-placeholder" style="width: 50px; height: 50px; border-radius: 8px; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 8px;">🏁</div>`
-                    }
-                    <div class="team-name">${team.name}</div>
-                    <div class="price">$${team.price}M</div>
-                </div>
-            `).join('');
-
-            // Agregar event listeners
-            container.querySelectorAll('.team-card').forEach(card => {
-                card.addEventListener('click', () => selectTeam(parseInt(card.dataset.id)));
-            });
+        if (response.ok) {
+            showMessage('¡Equipo comprado exitosamente!', 'success');
+            showPurchaseSummary();
+            addToHistory();
+        } else {
+            showMessage(data.error || 'Error al comprar el equipo', 'error');
         }
+    } catch (error) {
+        showMessage('¡Equipo comprado exitosamente! (modo offline)', 'success');
+        showPurchaseSummary();
+        addToHistory();
+    }
+}
 
-        function selectDriver(driverId) {
-            const driverIndex = selectedDrivers.indexOf(driverId);
+function showPurchaseSummary() {
+    const summaryDiv = document.getElementById('team-summary');
+    const contentDiv = document.getElementById('summary-content');
+    
+    if (!summaryDiv || !contentDiv) {
+        console.error('Elementos de resumen no encontrados');
+        return;
+    }
+    
+    // Obtener datos de pilotos seleccionados
+    const selectedDriversData = selectedDrivers.map(id => 
+        drivers.find(d => d.id === id)
+    ).filter(driver => driver !== undefined);
+    
+    // Obtener datos del equipo seleccionado
+    const selectedTeamData = teams.find(t => t.id === selectedTeam);
+    
+    if (!selectedTeamData) {
+        console.error('Equipo seleccionado no encontrado');
+        return;
+    }
+    
+    const totalCost = calculateUsedBudget();
+    const remainingBudget = totalBudget - totalCost;
+    
+    // Calcular costo total de pilotos
+    const driversCost = selectedDriversData.reduce((sum, driver) => sum + driver.price, 0);
+    
+    contentDiv.innerHTML = `
+        <div style="background: rgba(0,0,0,0.8); padding: 20px; border-radius: 15px; border: 2px solid #00ff88;">
+            <h3 style="color: #00ff88; text-align: center; margin-bottom: 20px;">📋 RESUMEN DE COMPRA</h3>
             
-            if (driverIndex > -1) {
-                // Deseleccionar piloto
-                selectedDrivers.splice(driverIndex, 1);
-            } else {
-                // Seleccionar piloto (máximo 5)
-                if (selectedDrivers.length < 5) {
-                    selectedDrivers.push(driverId);
-                } else {
-                    showMessage('Solo puedes seleccionar 5 pilotos', 'error');
-                    return;
-                }
-            }
-            
-            updateUI();
-        }
-
-        function selectTeam(teamId) {
-            selectedTeam = selectedTeam === teamId ? null : teamId;
-            updateUI();
-        }
-
-        function updateUI() {
-            // Actualizar cards seleccionadas
-            document.querySelectorAll('.driver-card').forEach(card => {
-                const driverId = parseInt(card.dataset.id);
-                card.classList.toggle('selected', selectedDrivers.includes(driverId));
-            });
-
-            document.querySelectorAll('.team-card').forEach(card => {
-                const teamId = parseInt(card.dataset.id);
-                card.classList.toggle('selected', selectedTeam === teamId);
-            });
-
-            // Actualizar contadores
-            document.getElementById('driver-count').textContent = selectedDrivers.length;
-            document.getElementById('team-count').textContent = selectedTeam ? 1 : 0;
-
-            // Calcular presupuesto usado
-            const usedBudget = calculateUsedBudget();
-            const remainingBudget = totalBudget - usedBudget;
-            
-            document.getElementById('remaining-budget').textContent = remainingBudget.toFixed(1);
-            
-            // Habilitar/deshabilitar botón guardar
-            const saveButton = document.getElementById('save-team');
-            const canSave = selectedDrivers.length === 5 && selectedTeam && remainingBudget >= 0;
-            saveButton.disabled = !canSave;
-        }
-
-        function calculateUsedBudget() {
-            let total = 0;
-            
-            selectedDrivers.forEach(driverId => {
-                const driver = drivers.find(d => d.id === driverId);
-                if (driver) total += driver.price;
-            });
-            
-            if (selectedTeam) {
-                const team = teams.find(t => t.id === selectedTeam);
-                if (team) total += team.price;
-            }
-            
-            return total;
-        }
-
-        async function saveTeam() {
-            try {
-                const response = await fetch('/api/team', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        userId: currentUser.id,
-                        selectedDrivers,
-                        selectedTeam
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showMessage('¡Equipo guardado exitosamente!', 'success');
-                    showTeamSummary();
-                    
-                    // Actualizar historial (simulado)
-                    if (!userHistory[currentUser.id]) {
-                        userHistory[currentUser.id] = [];
-                    }
-                    
-                    const driverNames = selectedDrivers.map(id => {
-                        const driver = drivers.find(d => d.id === id);
-                        return driver ? driver.name : 'Desconocido';
-                    }).join(', ');
-                    
-                    const teamName = teams.find(t => t.id === selectedTeam)?.name || 'Desconocido';
-                    
-                    userHistory[currentUser.id].push({
-                        date: new Date().toISOString().split('T')[0],
-                        action: `Equipo creado: Pilotos ${driverNames} - Escudería ${teamName}`
-                    });
-                    
-                    loadUserHistory();
-                } else {
-                    showMessage(data.error || 'Error al guardar el equipo', 'error');
-                }
-            } catch (error) {
-                showMessage('¡Equipo guardado exitosamente! (modo offline)', 'success');
-                showTeamSummary();
-            }
-        }
-
-        function showMessage(text, type) {
-            const messageDiv = document.getElementById('message');
-            messageDiv.textContent = text;
-            messageDiv.className = `message ${type}`;
-            messageDiv.style.display = 'block';
-            
-            setTimeout(() => {
-                messageDiv.style.display = 'none';
-            }, 5000);
-        }
-
-        function showInitialMessage(text, type) {
-            initialMessage.textContent = text;
-            initialMessage.className = `message ${type}`;
-            initialMessage.style.display = 'block';
-            
-            setTimeout(() => {
-                initialMessage.style.display = 'none';
-            }, 5000);
-        }
-
-        function showTeamSummary() {
-            const summaryDiv = document.getElementById('team-summary');
-            const contentDiv = document.getElementById('summary-content');
-            
-            const selectedDriversData = selectedDrivers.map(id => 
-                drivers.find(d => d.id === id)
-            );
-            const selectedTeamData = teams.find(t => t.id === selectedTeam);
-            
-            const totalCost = calculateUsedBudget();
-            
-            contentDiv.innerHTML = `
-                <h4>Pilotos Seleccionados:</h4>
-                <ul>
+            <div style="margin-bottom: 15px;">
+                <h4 style="color: #00ff88; margin-bottom: 10px;">🏎️ Pilotos Seleccionados:</h4>
+                <ul style="list-style: none; padding: 0;">
                     ${selectedDriversData.map(driver => 
-                        `<li>${driver.name} (${driver.team}) - $${driver.price}M</li>`
+                        `<li style="padding: 5px 0; border-bottom: 1px solid #333;">
+                            <span style="color: white;">${driver.name}</span> 
+                            <span style="color: #ccc;">(${driver.team})</span> 
+                            <span style="color: #00ff88; float: right;">$${driver.price}M</span>
+                        </li>`
                     ).join('')}
                 </ul>
-                <h4>Equipo Seleccionado:</h4>
-                <p>${selectedTeamData.name} - $${selectedTeamData.price}M</p>
-                <h4>Costo Total: $${totalCost.toFixed(1)}M</h4>
-                <h4>Presupuesto Restante: $${(totalBudget - totalCost).toFixed(1)}M</h4>
-            `;
+                <div style="text-align: right; margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+                    <strong style="color: #00ff88;">Subtotal Pilotos: $${driversCost.toFixed(1)}M</strong>
+                </div>
+            </div>
             
-            summaryDiv.style.display = 'block';
-        }
+            <div style="margin-bottom: 15px;">
+                <h4 style="color: #00ff88; margin-bottom: 10px;">🏁 Escudería Seleccionada:</h4>
+                <div style="padding: 10px; background: rgba(255,255,255,0.1); border-radius: 8px;">
+                    <span style="color: white;">${selectedTeamData.name}</span>
+                    <span style="color: #00ff88; float: right;">$${selectedTeamData.price}M</span>
+                </div>
+            </div>
+            
+            <div style="border-top: 2px solid #00ff88; padding-top: 15px; margin-top: 20px;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <strong style="color: white;">💰 TOTAL PAGADO:</strong>
+                    <strong style="color: #00ff88; font-size: 1.2em;">$${totalCost.toFixed(1)}M</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <span style="color: #ccc;">💳 Presupuesto Inicial:</span>
+                    <span style="color: #ccc;">$${totalBudget}M</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <strong style="color: white;">💵 Presupuesto Restante:</strong>
+                    <strong style="color: ${remainingBudget >= 0 ? '#00ff88' : '#ff4444'};">$${remainingBudget.toFixed(1)}M</strong>
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px;">
+                <button onclick="closePurchaseSummary()" style="background: #00ff88; color: black; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold;">
+                    ✅ Cerrar Resumen
+                </button>
+            </div>
+        </div>
+    `;
+    
+    summaryDiv.style.display = 'block';
+    summaryDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
 
-        // Event listeners
-        document.getElementById('save-team').addEventListener('click', saveTeam);
+function addToHistory() {
+    // Inicializar historial si no existe
+    if (!userHistory[currentUser.id]) {
+        userHistory[currentUser.id] = [];
+    }
+    
+    // Obtener datos detallados
+    const selectedDriversData = selectedDrivers.map(id => 
+        drivers.find(d => d.id === id)
+    ).filter(driver => driver !== undefined);
+    
+    const selectedTeamData = teams.find(t => t.id === selectedTeam);
+    const totalCost = calculateUsedBudget();
+    const remainingBudget = totalBudget - totalCost;
+    
+    // Crear resumen para historial
+    const driversList = selectedDriversData.map(driver => 
+        `${driver.name} ($${driver.price}M)`
+    ).join(', ');
+    
+    const historyEntry = {
+        date: new Date().toISOString().split('T')[0],
+        time: new Date().toLocaleTimeString(),
+        action: `💰 COMPRA REALIZADA`,
+        details: `Pilotos: ${driversList} | Escudería: ${selectedTeamData.name} ($${selectedTeamData.price}M) | Total: $${totalCost.toFixed(1)}M | Restante: $${remainingBudget.toFixed(1)}M`
+    };
+    
+    userHistory[currentUser.id].push(historyEntry);
+    
+    // Actualizar visualización del historial
+    updateHistoryDisplay();
+}
+
+function updateHistoryDisplay() {
+    const historyContainer = document.getElementById('history-container');
+    if (!historyContainer || !currentUser) return;
+    
+    const userHistoryData = userHistory[currentUser.id] || [];
+    
+    if (userHistoryData.length === 0) {
+        historyContainer.innerHTML = '<p style="color: #ccc; text-align: center;">📝 No hay historial disponible</p>';
+        return;
+    }
+    
+    historyContainer.innerHTML = userHistoryData
+        .slice(-10) // Mostrar últimas 10 entradas
+        .reverse() // Mostrar más recientes primero
+        .map(entry => `
+            <div class="history-entry" style="background: rgba(255,255,255,0.1); margin: 10px 0; padding: 15px; border-radius: 8px; border-left: 4px solid #00ff88;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span style="color: #00ff88; font-weight: bold;">${entry.action}</span>
+                    <span style="color: #ccc; font-size: 0.9em;">${entry.date} ${entry.time || ''}</span>
+                </div>
+                <div style="color: white; font-size: 0.9em; line-height: 1.4;">
+                    ${entry.details}
+                </div>
+            </div>
+        `).join('');
+}
+
+function closePurchaseSummary() {
+    const summaryDiv = document.getElementById('team-summary');
+    if (summaryDiv) {
+        summaryDiv.style.display = 'none';
+    }
+}
+
+function showMessage(text, type) {
+    const messageDiv = document.getElementById('message');
+    if (messageDiv) {
+        messageDiv.textContent = text;
+        messageDiv.className = `message ${type}`;
+        messageDiv.style.display = 'block';
+        
+        setTimeout(() => {
+            messageDiv.style.display = 'none';
+        }, 5000);
+    }
+}
+
+function showInitialMessage(text, type) {
+    const initialMessage = document.getElementById('initial-message');
+    if (initialMessage) {
+        initialMessage.textContent = text;
+        initialMessage.className = `message ${type}`;
+        initialMessage.style.display = 'block';
+        
+        setTimeout(() => {
+            initialMessage.style.display = 'none';
+        }, 5000);
+    }
+}
+
+// Event listeners
+document.getElementById('save-team').addEventListener('click', saveTeam);
     </script>
 </body>
 </html>
